@@ -137,6 +137,24 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+# ---- RAG integration ----
+# RAG/src를 패키지로 import (코어 무수정). RAG 루트를 sys.path에 추가.
+import sys
+RAG_ROOT = os.environ.get('RAG_ROOT', os.path.join(os.path.dirname(BASE_DIR), 'RAG'))
+if RAG_ROOT not in sys.path:
+    sys.path.insert(0, RAG_ROOT)
+
+# 코퍼스 outfit 이미지 서빙 루트 (RAG/data/images)
+RAG_DATA_DIR = os.environ.get('RAG_DATA_DIR', os.path.join(RAG_ROOT, 'data'))
+
+# Qdrant Cloud — 쿼리 임베딩(BGE-M3) 검색 대상
+QDRANT_URL = os.environ.get('QDRANT_URL')
+QDRANT_API_KEY = os.environ.get('QDRANT_API_KEY')
+QDRANT_COLLECTION = os.environ.get('QDRANT_COLLECTION', 'kf_base')
+
+# Gemini — 의도+앵커 추출 / 추천 생성
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'users.authentication.FirebaseAuthentication',

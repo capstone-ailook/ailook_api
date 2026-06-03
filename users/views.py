@@ -125,7 +125,11 @@ class ChatSessionDetailView(APIView):
         if not session:
             return Response({'error': 'Session not found'}, status=status.HTTP_404_NOT_FOUND)
         messages = session.messages.all()
-        data = [{'role': m.role, 'text': m.text, 'image_url': get_dynamic_url(m.image_url, request)} for m in messages]
+        data = [{'role': m.role, 'text': m.text,
+                 'image_url': get_dynamic_url(m.image_url, request),
+                 'outfits': m.outfits,
+                 'anchor_item_id': m.anchor_item_id,
+                 'anchor_category': m.anchor_category} for m in messages]
         return Response({'session_id': session.id, 'title': session.title, 'messages': data})
 
     def post(self, request, session_id):
@@ -148,68 +152,28 @@ class ChatSessionDetailView(APIView):
             session.title = user_message[:50]
             session.save(update_fields=['title'])
 
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            ai_reply = "API 키가 설정되지 않았습니다."
-            ChatMessage.objects.create(session=session, user=request.user, role='ai', text=ai_reply)
-            return Response({"reply": ai_reply})
+        # RAG 코디 추천 (의도 분기 + 검색 + 생성) — rag_service에 위임
+        from . import rag_service
+        result = rag_service.handle(
+            request, session, user_message,
+            anchor_item_id=request.data.get("anchor_item_id"),
+            profile_data=profile_data,
+        )
 
-        try:
-            client = genai.Client(api_key=api_key)
-
-            # Build a personalized profile context string.
-            profile_context = ""
-            if not profile_data:
-                try:
-                    profile = request.user.profile
-                    profile_data = {
-                        'gender': profile.gender,
-                        'age': profile.age,
-                        'height': profile.height,
-                        'weight': profile.weight,
-                        'nickname': profile.nickname,
-                    }
-                except UserProfile.DoesNotExist:
-                    profile_data = None
-
-            if profile_data:
-                parts = []
-                if profile_data.get('gender'): parts.append("성별: " + str(profile_data['gender']))
-                if profile_data.get('age'): parts.append("연령대: " + str(profile_data['age']))
-                if profile_data.get('height'): parts.append("키: " + str(profile_data['height']) + "cm")
-                if profile_data.get('weight'): parts.append("몸무게: " + str(profile_data['weight']) + "kg")
-                if profile_data.get('nickname'): parts.append("닉네임: " + str(profile_data['nickname']))
-                if parts:
-                    profile_context = "사용자 프로필 정보:\n" + "\n".join(parts) + "\n\n"
-
-            # Build context from previous messages in this session (exclude last user msg)
-            all_history = list(session.messages.order_by('created_at'))
-            history_context = ""
-            for msg in all_history[:-1]:  # list slicing works fine on Python lists
-                role_label = "사용자" if msg.role == "user" else "AI"
-                history_context += f"{role_label}: {msg.text}\n"
-
-            prompt = (
-                "당신은 친절하고 전문적이며 센스 있는 패션 코디네이터 AI인 'AI Closet Stylist'입니다. "
-                "아래 사용자 프로필을 바탕으로 사용자의 신체 특성과 스타일에 맞는 코디를 평가하고 추천해주세요. "
-                "어울리는 추천 아이템이나 스타일링 팁을 한국어로 구체적이고 다정하게 알려주세요.\n\n"
-                + profile_context
-                + (("이전 대화:\n" + history_context + "\n") if history_context else "")
-                + "사용자: " + user_message
-            )
-
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-            )
-            ai_reply = response.text
-        except Exception as e:
-            ai_reply = "AI API 호출 중 오류가 발생했습니다: " + str(e)
-
-        ChatMessage.objects.create(session=session, user=request.user, role='ai', text=ai_reply)
+        ChatMessage.objects.create(
+            session=session, user=request.user, role='ai',
+            text=result["reply"], outfits=result.get("outfits", []),
+            anchor_item_id=result.get("anchor_item_id"),
+            anchor_category=result.get("anchor_category") or "",
+        )
         # Touch updated_at on session so it sorts to the top
         session.save(update_fields=['updated_at'])
-        return Response({"reply": ai_reply})
+        return Response({
+            "reply": result["reply"],
+            "outfits": result.get("outfits", []),
+            "anchor_item_id": result.get("anchor_item_id"),
+            "anchor_category": result.get("anchor_category") or "",
+        })
 
 
 class ItemViewSet(viewsets.ModelViewSet):
