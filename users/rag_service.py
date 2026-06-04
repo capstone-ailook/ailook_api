@@ -251,8 +251,20 @@ def recommend(anchor: dict, style_hint: str | None, gender: str,
         substyle=substyle,
         top_k=TOP_K,
     )
-    if not results:
-        return {"reply": "조건에 맞는 코디를 찾지 못했어요. 다른 아이템이나 스타일로 다시 시도해 주세요.",
+
+    # confidence 로그 — 서빙 시 각 후보의 점수 출력 (임계값 튜닝용)
+    threshold = settings.RAG_SCORE_THRESHOLD
+    score_str = ", ".join(f"{r.image}:{r.score:.4f}" for r in results) or "none"
+    print(f"[RAG] query={query_text!r} gender={gender} substyle={substyle} "
+          f"→ {len(results)} hits [{score_str}] (threshold={threshold})")
+
+    # 임계값 미달이면 데이터 부족 반환 — 항상 N개를 억지로 만들지 않음
+    kept = [r for r in results if r.score >= threshold]
+    if not kept:
+        top = results[0].score if results else 0.0
+        print(f"[RAG] insufficient: top score {top:.4f} < threshold {threshold}")
+        return {"reply": "요청하신 아이템에 잘 어울리는 코디를 코퍼스에서 충분히 찾지 못했어요. "
+                         "색·핏·아이템 종류를 조금 더 구체적으로 알려주시면 다시 찾아볼게요.",
                 "outfits": []}
 
     prompt_text = prompts.build_generation_prompt(
@@ -260,7 +272,7 @@ def recommend(anchor: dict, style_hint: str | None, gender: str,
         style_hint=style_hint,
         gender=gender,
         substyle=substyle,
-        outfits=[r.metadata for r in results],
+        outfits=[r.metadata for r in kept],
     )
     if profile_context or history_text:
         prefix = profile_context
@@ -271,7 +283,7 @@ def recommend(anchor: dict, style_hint: str | None, gender: str,
     resp = _gen(prompt_text, config={"thinking_config": {"thinking_budget": 0}})
     return {
         "reply": resp.text,
-        "outfits": [_outfit_dict(r, request) for r in results],
+        "outfits": [_outfit_dict(r, request) for r in kept],
     }
 
 

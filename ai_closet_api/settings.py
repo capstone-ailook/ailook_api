@@ -151,6 +151,9 @@ RAG_IMAGES_DIR = os.environ.get('RAG_IMAGES_DIR', os.path.join(BASE_DIR, 'rag_co
 QDRANT_URL = os.environ.get('QDRANT_URL')
 QDRANT_API_KEY = os.environ.get('QDRANT_API_KEY')
 QDRANT_COLLECTION = os.environ.get('QDRANT_COLLECTION', 'kf_base')
+# 검색 점수(코사인 유사도) 임계값 — 최상위 결과가 이 미만이면 "데이터 부족" 반환.
+# 코퍼스마다 다르니 로그의 실제 score를 보고 튜닝(env: RAG_SCORE_THRESHOLD).
+RAG_SCORE_THRESHOLD = float(os.environ.get('RAG_SCORE_THRESHOLD', '0.5'))
 
 # Gemini — 의도+앵커 추출 / 추천 생성
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
