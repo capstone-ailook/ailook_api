@@ -1,6 +1,7 @@
 """RAG 코디 추천 서비스 — Gemini(의도+앵커 추출 / 생성) + BGE-M3 + Qdrant.
 
-RAG/src의 embedder/retriever/prompts를 그대로 import하여 사용 (코어 무수정, design.md D4/A2).
+embedder/retriever/prompts는 RAG에서 ailook_api로 vendored됨 (users/rag_core/).
+→ 앱 실행에 RAG 레포가 필요 없음. RAG는 오프라인 코퍼스 파이프라인 전용.
 generation은 로컬 Qwen 대신 Gemini로 통일 (design.md D5).
 """
 from __future__ import annotations
@@ -11,9 +12,8 @@ from functools import lru_cache
 
 from django.conf import settings
 
-# RAG core (sys.path에 RAG_ROOT 추가됨 — settings.py 참조)
-from src.generation import prompts          # build_anchor_text, build_generation_prompt
-from src.retrieval import embedder, retriever
+# RAG 런타임 코어 (vendored)
+from .rag_core import embedder, prompts, retriever
 
 from .models import Item, UserProfile
 

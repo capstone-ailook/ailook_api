@@ -138,11 +138,7 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # ---- RAG integration ----
-# RAG/src를 패키지로 import (코어 무수정). RAG 루트를 sys.path에 추가.
-import sys
-RAG_ROOT = os.environ.get('RAG_ROOT', os.path.join(os.path.dirname(BASE_DIR), 'RAG'))
-if RAG_ROOT not in sys.path:
-    sys.path.insert(0, RAG_ROOT)
+# RAG 런타임 코어는 users/rag_core/로 vendored됨 → RAG 레포 런타임 의존성 없음.
 
 # 코퍼스 outfit 이미지 서빙 루트 — ailook_api에 동봉 (git 추적, 팀원 clone 시 함께 받음)
 RAG_IMAGES_DIR = os.environ.get('RAG_IMAGES_DIR', os.path.join(BASE_DIR, 'rag_corpus', 'images'))
