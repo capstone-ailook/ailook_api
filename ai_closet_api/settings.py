@@ -144,8 +144,8 @@ RAG_ROOT = os.environ.get('RAG_ROOT', os.path.join(os.path.dirname(BASE_DIR), 'R
 if RAG_ROOT not in sys.path:
     sys.path.insert(0, RAG_ROOT)
 
-# 코퍼스 outfit 이미지 서빙 루트 (RAG/data/images)
-RAG_DATA_DIR = os.environ.get('RAG_DATA_DIR', os.path.join(RAG_ROOT, 'data'))
+# 코퍼스 outfit 이미지 서빙 루트 — ailook_api에 동봉 (git 추적, 팀원 clone 시 함께 받음)
+RAG_IMAGES_DIR = os.environ.get('RAG_IMAGES_DIR', os.path.join(BASE_DIR, 'rag_corpus', 'images'))
 
 # Qdrant Cloud — 쿼리 임베딩(BGE-M3) 검색 대상
 QDRANT_URL = os.environ.get('QDRANT_URL')
