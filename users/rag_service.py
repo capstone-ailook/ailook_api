@@ -267,12 +267,14 @@ def recommend(anchor: dict, style_hint: str | None, gender: str,
                          "색·핏·아이템 종류를 조금 더 구체적으로 알려주시면 다시 찾아볼게요.",
                 "outfits": []}
 
+    # 점수 높은 상위 3개만 추천 대상 (검색 랭킹 존중). LLM이 임의 재선별하지 않게 함.
+    top3 = results[:3]
     prompt_text = prompts.build_generation_prompt(
         anchor_item=anchor,
         style_hint=style_hint,
         gender=gender,
         substyle=substyle,
-        outfits=[r.metadata for r in results],
+        outfits=[r.metadata for r in top3],
     )
     if profile_context or history_text:
         prefix = profile_context
@@ -283,7 +285,7 @@ def recommend(anchor: dict, style_hint: str | None, gender: str,
     resp = _gen(prompt_text, config={"thinking_config": {"thinking_budget": 0}})
     return {
         "reply": resp.text,
-        "outfits": [_outfit_dict(r, request) for r in results],
+        "outfits": [_outfit_dict(r, request) for r in top3],
     }
 
 
