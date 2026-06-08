@@ -175,7 +175,15 @@ _EXTRACT_INSTRUCTION = """\
   "substyle": "street"|"minimal"|"city"|"y2k"|"athleisure" | null,
   "style_hint": string | null    // 자유 표현 (예: "오버사이즈 느낌으로")
 }
-앵커 정보가 부족해도 추천 요청이면 intent=recommend, 알 수 있는 필드만 채우고 나머지는 null."""
+앵커 정보가 부족해도 추천 요청이면 intent=recommend, 알 수 있는 필드만 채우고 나머지는 null.
+
+[앵커 규칙 — 반드시 지킬 것]
+1) 앵커는 상의(tops)·하의(bottom)·원피스(one_piece)만 될 수 있습니다. 사용자가 코디의 기준으로 삼으려는
+   메인 아이템이 모자·신발·가방·양말·액세서리 등이면, 그것은 앵커가 아닙니다. 이 경우 억지로 tops로
+   분류하지 말고 intent="chat"으로 두고, reply에 "○○은 코디 기준으로 잡기 어려워요. 어떤 상의나 하의를
+   중심으로 매칭해볼까요?"처럼 상의/하의 기준을 정중히 다시 요청하세요.
+2) 여러 상의가 함께 언급되면(예: "티셔츠 위에 맨투맨"), 가장 바깥에 보이는(겉에 입는) 상의를 앵커로 잡고,
+   안에 받쳐 입는 베이스 레이어는 details에만 적으세요."""
 
 
 def classify_and_extract(message: str, history_text: str) -> dict:
