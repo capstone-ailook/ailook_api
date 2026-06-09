@@ -27,9 +27,17 @@ load_dotenv(os.path.join(BASE_DIR, '.env'))
 SECRET_KEY = 'django-insecure-)perjl3%n@8!bl3tw!qx^te^8v*7pnxi00@(lp+tg2-3b_8z4m'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = ['192.168.0.3', '10.0.2.2', 'localhost', '127.0.0.1', '*']
+ALLOWED_HOSTS = [
+    '(pythonanywhere ID).pythonanywhere.com',
+    'localhost',
+    '127.0.0.1',
+]
+
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 CORS_ALLOW_ALL_ORIGINS = True
 
@@ -51,6 +59,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -127,6 +136,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
@@ -150,6 +161,9 @@ QDRANT_COLLECTION = os.environ.get('QDRANT_COLLECTION', 'kf_base')
 
 # Gemini — 의도+앵커 추출 / 추천 생성
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
+# Hugging Face API — BGE-M3 임베딩 추출용
+HF_TOKEN = os.environ.get('HF_TOKEN')
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (

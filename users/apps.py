@@ -42,8 +42,9 @@ class UsersConfig(AppConfig):
             return  # autoreload watcher 프로세스 — 건너뜀
         try:
             from . import rag_service
-            rag_service.warm_up()
-            print("BGE-M3 preloaded.")
+            import threading
+            threading.Thread(target=rag_service.warm_up, daemon=True).start()
+            print("BGE-M3 preloading started in a background thread.")
         except Exception as e:
             print(f"BGE-M3 preload skipped: {e}")
 
