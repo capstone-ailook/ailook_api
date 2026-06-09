@@ -51,8 +51,10 @@ _TRANSIENT = ("503", "unavailable", "429", "resource_exhausted", "overloaded",
               "high demand")
 
 
-def _gen(contents: str, config: dict | None = None, retries: int = 3):
-    """Gemini 생성 + transient(503/429/overload) 재시도 backoff."""
+def _gen(contents: str, config: dict | None = None, retries: int = 5):
+    """Gemini 생성 + transient(503/429/overload) 재시도 backoff.
+    429 Rate Limit 발생 시 대기 시간을 파싱하여 지능적으로 대기 후 재시도합니다.
+    """
     last_err = None
     for attempt in range(retries):
         try:
@@ -61,7 +63,16 @@ def _gen(contents: str, config: dict | None = None, retries: int = 3):
         except Exception as e:  # noqa: BLE001
             msg = str(e).lower()
             if attempt < retries - 1 and any(t in msg for t in _TRANSIENT):
-                time.sleep(1.5 * (attempt + 1))
+                import re
+                # 구글 API 메시지에서 대기 시간 추출 시도 (예: "please retry in 11.3s")
+                match = re.search(r"please retry in ([\d\.]+)s", msg)
+                if match:
+                    wait_time = float(match.group(1)) + 0.5
+                else:
+                    wait_time = 3.0 * (attempt + 1)
+                
+                print(f"[Gemini] Rate limited (429). Waiting {wait_time}s before retry (attempt {attempt + 1}/{retries})...")
+                time.sleep(wait_time)
                 last_err = e
                 continue
             raise
