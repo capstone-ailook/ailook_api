@@ -20,7 +20,8 @@ class UsersConfig(AppConfig):
                     cred = credentials.Certificate(key_path)
                     firebase_admin.initialize_app(cred)
                 else:
-                    firebase_admin.initialize_app()
+                    project_id = os.environ.get('FIREBASE_PROJECT_ID') or os.environ.get('GOOGLE_CLOUD_PROJECT') or 'ailook-flutter-dev'
+                    firebase_admin.initialize_app(options={'projectId': project_id})
             except Exception as e:
                 print(f"Warning initialize_app: {e}")
 
