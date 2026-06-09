@@ -1,0 +1,13 @@
+ Django==4.2.29
+djangorestframework
+django-cors-headers
+drf-spectacular
+python-dotenv
+firebase-admin
+google-genai
+
+# RAG integration (코디 추천 엔진) — RAG/src를 import해서 사용
+FlagEmbedding>=1.2.10
+torch>=2.0.0
+transformers>=4.40.0
+qdrant-client>=1.12.0

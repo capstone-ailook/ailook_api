@@ -137,6 +137,20 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+# ---- RAG integration ----
+# RAG 런타임 코어는 users/rag_core/로 vendored됨 → RAG 레포 런타임 의존성 없음.
+
+# 코퍼스 outfit 이미지 서빙 루트 — ailook_api에 동봉 (git 추적, 팀원 clone 시 함께 받음)
+RAG_IMAGES_DIR = os.environ.get('RAG_IMAGES_DIR', os.path.join(BASE_DIR, 'rag_corpus', 'images'))
+
+# Qdrant Cloud — 쿼리 임베딩(BGE-M3) 검색 대상
+QDRANT_URL = os.environ.get('QDRANT_URL')
+QDRANT_API_KEY = os.environ.get('QDRANT_API_KEY')
+QDRANT_COLLECTION = os.environ.get('QDRANT_COLLECTION', 'kf_base')
+
+# Gemini — 의도+앵커 추출 / 추천 생성
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'users.authentication.FirebaseAuthentication',

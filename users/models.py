@@ -71,6 +71,12 @@ class ChatMessage(models.Model):
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
     text = models.TextField()
     image_url = models.URLField(max_length=500, blank=True)
+    # AI 추천 응답의 retrieved outfit 사진들 (D7).
+    # 각 항목: {image, image_url, score, substyle, caption_snippet}
+    outfits = models.JSONField(default=list, blank=True)
+    # 클로젯-탭 추천 시 앵커로 쓰인 사용자 Item (create-cody 슬롯 연결용, D9).
+    anchor_item_id = models.IntegerField(null=True, blank=True)
+    anchor_category = models.CharField(max_length=20, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
