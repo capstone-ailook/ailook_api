@@ -16,4 +16,7 @@ urlpatterns = [
     # RAG 코퍼스 outfit 이미지 서빙 (ailook_api/rag_corpus/images/{gender}/{file})
     path('rag-images/<path:path>', static_serve,
          {'document_root': settings.RAG_IMAGES_DIR}),
+    # 미디어 파일 서빙 (DEBUG=False 대응)
+    path('media/<path:path>', static_serve,
+         {'document_root': settings.MEDIA_ROOT}),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
