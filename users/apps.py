@@ -16,7 +16,15 @@ class UsersConfig(AppConfig):
                 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 key_path = os.path.join(base_dir, 'serviceAccountKey.json')
                 
-                if os.path.exists(key_path):
+                # Check for env variable JSON content first, then file, then fallback
+                firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
+                
+                if firebase_creds_json:
+                    import json
+                    cred_dict = json.loads(firebase_creds_json)
+                    cred = credentials.Certificate(cred_dict)
+                    firebase_admin.initialize_app(cred)
+                elif os.path.exists(key_path):
                     cred = credentials.Certificate(key_path)
                     firebase_admin.initialize_app(cred)
                 else:
