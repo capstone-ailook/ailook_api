@@ -306,6 +306,7 @@ def recommend(anchor: dict, style_hint: str | None, gender: str,
 def handle(request, session, user_message: str, anchor_item_id=None,
            profile_data: dict | None = None) -> dict:
     """챗 1턴 처리. {reply, outfits} 반환. (user 메시지는 view에서 이미 저장됨)"""
+    import os
     if not settings.GEMINI_API_KEY:
         return {"reply": "API 키가 설정되지 않았습니다.", "outfits": []}
 
@@ -313,38 +314,58 @@ def handle(request, session, user_message: str, anchor_item_id=None,
     profile_context = _profile_context(profile_data)
     history_text = _history_text(session)
 
+    # 환경 변수로 RAG 강제 비활성화 여부 확인
+    disable_rag = os.environ.get("DISABLE_RAG", "false").lower() == "true"
+
     try:
-        # 경로 1: 클로젯 아이템 탭 → 구조화 앵커 (강제 recommend)
-        if anchor_item_id:
-            try:
-                item = Item.objects.get(id=anchor_item_id, user=request.user)
-            except Item.DoesNotExist:
-                return {"reply": "선택한 아이템을 찾을 수 없어요.", "outfits": []}
-            anchor, ok = anchor_from_item(item)
-            if not ok:
-                return {"reply": "신발·액세서리는 아직 코디 기준 아이템으로 쓸 수 없어요. 상의나 하의를 골라주세요.",
-                        "outfits": []}
-            gender = map_gender(profile_data.get("gender") if profile_data else None)
-            res = recommend(anchor, user_message or None, gender, None,
-                            profile_context, history_text, request)
-            # create-cody 슬롯 연결용 — 앵커는 사용자의 실제 Item (D9)
-            res["anchor_item_id"] = item.id
-            res["anchor_category"] = item.category  # 'top' | 'bottom'
-            return res
+        if not disable_rag:
+            # 경로 1: 클로젯 아이템 탭 → 구조화 앵커 (강제 recommend)
+            if anchor_item_id:
+                try:
+                    item = Item.objects.get(id=anchor_item_id, user=request.user)
+                    anchor, ok = anchor_from_item(item)
+                    if not ok:
+                        return {"reply": "신발·액세서리는 아직 코디 기준 아이템으로 쓸 수 없어요. 상의나 하의를 골라주세요.",
+                                "outfits": []}
+                    gender = map_gender(profile_data.get("gender") if profile_data else None)
+                    res = recommend(anchor, user_message or None, gender, None,
+                                    profile_context, history_text, request)
+                    res["anchor_item_id"] = item.id
+                    res["anchor_category"] = item.category  # 'top' | 'bottom'
+                    return res
+                except Exception as e:
+                    print(f"[RAG] Closet recommendation failed, falling back to plain chat. Error: {e}")
+                    # Closet RAG fail -> fallback to plain chat below
 
-        # 경로 2: 자유 텍스트 → 의도+앵커 추출
-        extracted = classify_and_extract(user_message, history_text)
-        if extracted.get("intent") == "recommend" and extracted.get("anchor"):
-            gender = extracted.get("gender") or "any"
-            if gender == "any":
-                gender = map_gender(profile_data.get("gender") if profile_data else None)
-            return recommend(
-                extracted["anchor"], extracted.get("style_hint"), gender,
-                extracted.get("substyle"), profile_context, history_text, request,
-            )
+            # 경로 2: 자유 텍스트 → 의도+앵커 추출
+            else:
+                extracted = classify_and_extract(user_message, history_text)
+                if extracted.get("intent") == "recommend" and extracted.get("anchor"):
+                    gender = extracted.get("gender") or "any"
+                    if gender == "any":
+                        gender = map_gender(profile_data.get("gender") if profile_data else None)
+                    try:
+                        return recommend(
+                            extracted["anchor"], extracted.get("style_hint"), gender,
+                            extracted.get("substyle"), profile_context, history_text, request,
+                        )
+                    except Exception as e:
+                        print(f"[RAG] RAG recommendation failed, falling back to plain chat. Error: {e}")
+                        # RAG query fail -> fallback to plain chat below
+        else:
+            print("[RAG] RAG is disabled via DISABLE_RAG env variable.")
 
-        # 잡담
-        reply = extracted.get("reply") or _plain_chat(user_message, profile_context, history_text)
+        # 잡담 혹은 RAG 실패/비활성화 시 일반 대화로 폴백
+        try:
+            extracted = classify_and_extract(user_message, history_text)
+            reply = extracted.get("reply") or _plain_chat(user_message, profile_context, history_text)
+        except Exception as chat_err:
+            print(f"[RAG] Plain chat failed: {chat_err}")
+            reply = "안녕하세요! AI Closet 스타일리스트입니다. 오늘 어떤 옷차림이 고민되시나요?"
+
         return {"reply": reply, "outfits": []}
+
     except Exception as e:
-        return {"reply": "AI 처리 중 오류가 발생했습니다: " + str(e), "outfits": []}
+        print(f"[RAG] Critical error in handle: {e}")
+        # 최종 예외가 발생하더라도 500 대신 정중한 대화 메시지로 응답
+        return {"reply": "시스템 로딩에 잠시 지연이 생겼습니다. 다시 편하게 말씀해 주세요!", "outfits": []}
