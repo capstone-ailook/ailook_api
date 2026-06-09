@@ -53,7 +53,7 @@ class RagServiceTests(TestCase):
 
     @patch("users.rag_service._genai_client")
     @patch("time.sleep")
-    def test_gen_raises_immediately_if_wait_too_long(self, mock_sleep, mock_client_func):
+    def test_gen_caps_wait_time_to_five_seconds(self, mock_sleep, mock_client_func):
         mock_client = MagicMock()
         mock_client_func.return_value = mock_client
         
@@ -64,36 +64,10 @@ class RagServiceTests(TestCase):
             rag_service._gen("test prompt")
         
         self.assertIn("rate limited (429)", str(context.exception).lower())
-        # Should not sleep or retry
-        mock_sleep.assert_not_called()
-        self.assertEqual(mock_client.models.generate_content.call_count, 1)
-
-    @patch("users.rag_service._genai_client")
-    @patch("time.sleep")
-    def test_gen_raises_when_cumulative_wait_too_long(self, mock_sleep, mock_client_func):
-        mock_client = MagicMock()
-        mock_client_func.return_value = mock_client
-        
-        # Series of exceptions with short wait times that sum to > 15 seconds
-        mock_client.models.generate_content.side_effect = [
-            Exception("Rate limited (429): please retry in 5.5s"), # wait 6s
-            Exception("Rate limited (429): please retry in 5.5s"), # wait 6s (cumulative 12s)
-            Exception("Rate limited (429): please retry in 5.5s"), # wait 6s (cumulative 18s -> exceeds 15s)
-        ]
-
-        # Let's mock time.time() to simulate elapsed time
-        # Start at 0, then after first sleep it becomes 6, after second sleep it becomes 12
-        with patch("time.time") as mock_time:
-            mock_time.side_effect = [0.0, 0.0, 6.0, 12.0]
-            with self.assertRaises(Exception) as context:
-                rag_service._gen("test prompt")
-            self.assertIn("rate limited (429)", str(context.exception).lower())
-            
-        # The third exception should not have slept
+        # Should call sleep 2 times with 5.0s (attempts 1 & 2)
         self.assertEqual(mock_sleep.call_count, 2)
-        mock_sleep.assert_any_call(6.0)
-
-
+        mock_sleep.assert_called_with(5.0)
+        self.assertEqual(mock_client.models.generate_content.call_count, 3)
 
     @patch("users.rag_service._gen")
     def test_handle_graceful_fallback(self, mock_gen):
@@ -110,6 +84,8 @@ class RagServiceTests(TestCase):
         session.messages.order_by.return_value = []
         
         res = rag_service.handle(request, session, "오늘 옷 뭐입지?")
-        self.assertEqual(res["reply"], "안녕하세요! AI Closet 스타일리스트입니다. 오늘 어떤 옷차림이 고민되시나요?")
+        self.assertIn("잠시 요청이 많아 응답이 지연되고 있어요", res["reply"])
         self.assertEqual(res["outfits"], [])
+
+
 

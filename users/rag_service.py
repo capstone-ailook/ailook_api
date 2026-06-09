@@ -13,11 +13,11 @@ from functools import lru_cache
 from django.conf import settings
 
 # RAG 런타임 코어 (vendored)
-from .rag_core import embedder, prompts, retriever
+from .rag_core import prompts
 
 from .models import Item, UserProfile
 
-GEMINI_MODEL = "gemini-flash-latest"
+GEMINI_MODEL = "gemini-1.5-flash"
 TOP_K = 5
 # 코퍼스 outfit 이미지 서빙 prefix (urls.py의 rag-images 라우트와 일치)
 IMAGE_URL_PREFIX = "/rag-images"
@@ -43,7 +43,7 @@ def _qdrant():
 
 
 def warm_up() -> None:
-    """RAG 비활성화로 인해 워밍업 불필요."""
+    """BGE-M3 선로드 미사용 (Gemini 전용)"""
     pass
 
 
@@ -51,13 +51,11 @@ _TRANSIENT = ("503", "unavailable", "429", "resource_exhausted", "overloaded",
               "high demand")
 
 
-def _gen(contents: str, config: dict | None = None, retries: int = 5):
+def _gen(contents: str, config: dict | None = None, retries: int = 3):
     """Gemini 생성 + transient(503/429/overload) 재시도 backoff.
-    429 Rate Limit 발생 시 대기 시간을 파싱하여 지능적으로 대기 후 재시도합니다.
-    단, 대기 시간이 너무 길거나 누적 대기 시간이 임계값을 초과하면 더 재시도하지 않고 예외를 발생시킵니다.
+    Gunicorn 워커 타임아웃(30s) 초과 방지를 위해 sleep 시간을 최대 5s로 제한합니다.
     """
     last_err = None
-    start_time = time.time()
     for attempt in range(retries):
         try:
             return _genai_client().models.generate_content(
@@ -69,24 +67,16 @@ def _gen(contents: str, config: dict | None = None, retries: int = 5):
                 # 구글 API 메시지에서 대기 시간 추출 시도 (예: "please retry in 11.3s")
                 match = re.search(r"please retry in ([\d\.]+)s", msg)
                 if match:
-                    wait_time = float(match.group(1)) + 0.5
+                    wait_time = min(float(match.group(1)) + 0.5, 5.0)
                 else:
-                    wait_time = 3.0 * (attempt + 1)
-                
-                elapsed = time.time() - start_time
-                # 1회 대기 시간이 10초를 초과하거나, 누적 소요 시간 + 대기 시간이 15초를 초과하면
-                # Gunicorn 워커 타임아웃(기본 30초) 및 사용자 대기 시간을 고려하여 즉시 예외를 발생시킵니다.
-                if wait_time > 10.0 or (elapsed + wait_time) > 15.0:
-                    print(f"[Gemini] Rate limited (429). Wait time {wait_time:.2f}s is too long (elapsed {elapsed:.2f}s). Raising error immediately.")
-                    raise
-                
-                print(f"[Gemini] Rate limited (429). Waiting {wait_time:.2f}s before retry (attempt {attempt + 1}/{retries})...")
+                    wait_time = 2.0
+
+                print(f"[Gemini] Transient error. Waiting {wait_time}s before retry (attempt {attempt + 1}/{retries})...")
                 time.sleep(wait_time)
                 last_err = e
                 continue
             raise
     raise last_err  # pragma: no cover
-
 
 
 # ---------------------------------------------------------------- helpers
@@ -219,10 +209,12 @@ def classify_and_extract(message: str, history_text: str) -> dict:
             "response_mime_type": "application/json", "temperature": 0.2,
             "thinking_config": {"thinking_budget": 0}})
         data = json.loads(resp.text)
-    except Exception:
-        # 파싱 실패 시 잡담으로 폴백
-        return {"intent": "chat", "reply": None, "anchor": None,
-                "gender": "any", "substyle": None, "style_hint": None}
+    except Exception as e:
+        # Rate Limit 또는 파싱 실패 시 — _plain_chat 추가 호출 없이 바로 안내 메시지 반환
+        print(f"[classify_and_extract] failed: {e}")
+        return {"intent": "chat",
+                "reply": "잠시 요청이 많아 응답이 지연되고 있어요. 잠시 후 다시 시도해 주세요. 🙏",
+                "anchor": None, "gender": "any", "substyle": None, "style_hint": None}
     data.setdefault("intent", "chat")
     data.setdefault("gender", "any")
     data.setdefault("substyle", None)
@@ -267,47 +259,32 @@ def _outfit_dict(r, request) -> dict:
 def recommend(anchor: dict, style_hint: str | None, gender: str,
               substyle: str | None, profile_context: str,
               history_text: str, request) -> dict:
-    """앵커 → BGE-M3 임베딩 → Qdrant 검색 → Gemini 생성 → {reply, outfits}."""
+    """RAG(Qdrant/HuggingFace) 없이 Gemini만 사용하여 직접 스타일링 추천 생성"""
     anchor_text = prompts.build_anchor_text(anchor)
-    query_text = f"{anchor_text} {style_hint or ''}".strip()
-    query_vec = embedder.encode(query_text)
-
-    results = retriever.retrieve(
-        client=_qdrant(),
-        collection=settings.QDRANT_COLLECTION,
-        query_vector=query_vec,
-        gender=gender,
-        substyle=substyle,
-        top_k=TOP_K,
+    
+    prompt_text = (
+        f"{_PERSONA}\n\n"
+        f"사용자가 다음 아이템을 기준으로 코디 추천을 요청했습니다:\n"
+        f"- 기준 아이템 정보: {anchor_text}\n"
     )
-
-    # confidence 로그 — 서빙 시 각 후보의 점수 출력 (유지)
-    score_str = ", ".join(f"{r.image}:{r.score:.4f}" for r in results) or "none"
-    print(f"[RAG] query={query_text!r} gender={gender} substyle={substyle} "
-          f"→ {len(results)} hits [{score_str}]")
-
-    if not results:
-        return {"reply": "조건에 맞는 코디를 찾지 못했어요. 다른 아이템이나 스타일로 다시 시도해 주세요.",
-                "outfits": []}
-
-    # 후보 전체를 생성에 넘기고 LLM이 어울리는 것을 선별 (그 질문 이전 동작으로 복원)
-    prompt_text = prompts.build_generation_prompt(
-        anchor_item=anchor,
-        style_hint=style_hint,
-        gender=gender,
-        substyle=substyle,
-        outfits=[r.metadata for r in results],
+    if style_hint:
+        prompt_text += f"- 스타일 힌트/요청사항: {style_hint}\n"
+    if substyle:
+        prompt_text += f"- 선호 스타일: {substyle}\n"
+    if gender and gender != "any":
+        prompt_text += f"- 성별/타겟 스타일: {gender}\n"
+        
+    prompt_text += (
+        f"\n사용자의 프로필 정보와 이전 대화를 참고하여, 이 기준 아이템에 가장 잘 어울리는 코디 조합(상의/하의/신발/액세서리 등)을 제안하고 구체적인 패션 팁과 스타일링 가이드를 작성해주세요.\n\n"
+        f"{profile_context}"
     )
-    if profile_context or history_text:
-        prefix = profile_context
-        if history_text:
-            prefix += f"[이전 대화]\n{history_text}\n\n"
-        prompt_text = prefix + prompt_text
-
+    if history_text:
+        prompt_text += f"[이전 대화]\n{history_text}\n\n"
+        
     resp = _gen(prompt_text, config={"thinking_config": {"thinking_budget": 0}})
     return {
         "reply": resp.text,
-        "outfits": [_outfit_dict(r, request) for r in results],
+        "outfits": [], # RAG 미사용으로 코퍼스 추천 의상 리스트는 비움
     }
 
 
@@ -315,7 +292,7 @@ def recommend(anchor: dict, style_hint: str | None, gender: str,
 
 def handle(request, session, user_message: str, anchor_item_id=None,
            profile_data: dict | None = None) -> dict:
-    """챗 1턴 처리. RAG 비활성화 상태이므로 무조건 일반 대화로 응답."""
+    """챗 1턴 처리. {reply, outfits} 반환. (user 메시지는 view에서 이미 저장됨)"""
     if not settings.GEMINI_API_KEY:
         return {"reply": "API 키가 설정되지 않았습니다.", "outfits": []}
 
@@ -324,8 +301,37 @@ def handle(request, session, user_message: str, anchor_item_id=None,
     history_text = _history_text(session)
 
     try:
-        reply = _plain_chat(user_message, profile_context, history_text)
+        # 경로 1: 클로젯 아이템 탭 → 구조화 앵커 (강제 recommend)
+        if anchor_item_id:
+            try:
+                item = Item.objects.get(id=anchor_item_id, user=request.user)
+            except Item.DoesNotExist:
+                return {"reply": "선택한 아이템을 찾을 수 없어요.", "outfits": []}
+            anchor, ok = anchor_from_item(item)
+            if not ok:
+                return {"reply": "신발·액세서리는 아직 코디 기준 아이템으로 쓸 수 없어요. 상의나 하의를 골라주세요.",
+                        "outfits": []}
+            gender = map_gender(profile_data.get("gender") if profile_data else None)
+            res = recommend(anchor, user_message or None, gender, None,
+                            profile_context, history_text, request)
+            # create-cody 슬롯 연결용 — 앵커는 사용자의 실제 Item (D9)
+            res["anchor_item_id"] = item.id
+            res["anchor_category"] = item.category  # 'top' | 'bottom'
+            return res
+
+        # 경로 2: 자유 텍스트 → 의도+앵커 추출
+        extracted = classify_and_extract(user_message, history_text)
+        if extracted.get("intent") == "recommend" and extracted.get("anchor"):
+            gender = extracted.get("gender") or "any"
+            if gender == "any":
+                gender = map_gender(profile_data.get("gender") if profile_data else None)
+            return recommend(
+                extracted["anchor"], extracted.get("style_hint"), gender,
+                extracted.get("substyle"), profile_context, history_text, request,
+            )
+
+        # 잡담
+        reply = extracted.get("reply") or _plain_chat(user_message, profile_context, history_text)
         return {"reply": reply, "outfits": []}
-    except Exception as chat_err:
-        print(f"[RAG] Plain chat failed: {chat_err}")
-        return {"reply": "안녕하세요! AI Closet 스타일리스트입니다. 오늘 어떤 옷차림이 고민되시나요?", "outfits": []}
+    except Exception as e:
+        return {"reply": "AI 처리 중 오류가 발생했습니다: " + str(e), "outfits": []}
