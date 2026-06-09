@@ -54,8 +54,10 @@ _TRANSIENT = ("503", "unavailable", "429", "resource_exhausted", "overloaded",
 def _gen(contents: str, config: dict | None = None, retries: int = 5):
     """Gemini 생성 + transient(503/429/overload) 재시도 backoff.
     429 Rate Limit 발생 시 대기 시간을 파싱하여 지능적으로 대기 후 재시도합니다.
+    단, 대기 시간이 너무 길거나 누적 대기 시간이 임계값을 초과하면 더 재시도하지 않고 예외를 발생시킵니다.
     """
     last_err = None
+    start_time = time.time()
     for attempt in range(retries):
         try:
             return _genai_client().models.generate_content(
@@ -71,12 +73,20 @@ def _gen(contents: str, config: dict | None = None, retries: int = 5):
                 else:
                     wait_time = 3.0 * (attempt + 1)
                 
-                print(f"[Gemini] Rate limited (429). Waiting {wait_time}s before retry (attempt {attempt + 1}/{retries})...")
+                elapsed = time.time() - start_time
+                # 1회 대기 시간이 10초를 초과하거나, 누적 소요 시간 + 대기 시간이 15초를 초과하면
+                # Gunicorn 워커 타임아웃(기본 30초) 및 사용자 대기 시간을 고려하여 즉시 예외를 발생시킵니다.
+                if wait_time > 10.0 or (elapsed + wait_time) > 15.0:
+                    print(f"[Gemini] Rate limited (429). Wait time {wait_time:.2f}s is too long (elapsed {elapsed:.2f}s). Raising error immediately.")
+                    raise
+                
+                print(f"[Gemini] Rate limited (429). Waiting {wait_time:.2f}s before retry (attempt {attempt + 1}/{retries})...")
                 time.sleep(wait_time)
                 last_err = e
                 continue
             raise
     raise last_err  # pragma: no cover
+
 
 
 # ---------------------------------------------------------------- helpers
