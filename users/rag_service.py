@@ -17,7 +17,7 @@ from .rag_core import embedder, prompts, retriever
 
 from .models import Item, UserProfile
 
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-flash-latest"
 TOP_K = 5
 # 코퍼스 outfit 이미지 서빙 prefix (urls.py의 rag-images 라우트와 일치)
 IMAGE_URL_PREFIX = "/rag-images"
